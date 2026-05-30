@@ -833,8 +833,10 @@ export function calculatePositionSize(balance, currentPrice, atrValue) {
     const riskAmountUSD = balance * CONFIG.RISK_PCT;
     const slDistanceUSD = 1.5 * atrValue;
     const contractUnit = MARKET_SPECS.contractSize;
+    const minTradableContracts = 1;
 
-    let calculatedContracts = Math.floor(riskAmountUSD / (contractUnit * slDistanceUSD));
+    const rawContracts = riskAmountUSD / (contractUnit * slDistanceUSD);
+    let calculatedContracts = Math.floor(rawContracts);
 
     // Limit maximum leverage to 3x of Account Size
     const maxLeverage = 3;
@@ -846,13 +848,18 @@ export function calculatePositionSize(balance, currentPrice, atrValue) {
     // Enforce max position cap (Requirement 7)
     size = Math.min(size, CONFIG.MAX_CONTRACTS || 100);
 
-    // Enforce strict risk limits for small account constraints
-    if (size < 1) {
+    // Minimum tradable size fallback: if risk sizing indicates a positive position
+    // but rounding or caps pushed it below the minimum contract quantity, try
+    // to preserve a 1-contract trade when the risk remains acceptable.
+    if (size < minTradableContracts && rawContracts > 0) {
         const singleContractRisk = contractUnit * slDistanceUSD;
-        if (singleContractRisk <= balance * 0.02) {
-            size = 1;
+        if (
+            singleContractRisk <= balance * 0.02 &&
+            minTradableContracts <= maxAllowedContracts
+        ) {
+            size = minTradableContracts;
         } else {
-            size = 0; // Prevent trading if risk of 1 contract crosses 2% threshold to prevent blowups
+            size = 0; // Prevent trading if 1 contract risk would exceed the small-account safety threshold
         }
     }
 
